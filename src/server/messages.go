@@ -251,6 +251,117 @@ func (s *Server) SendMessage(ctx context.Context, req *__.MessageRequest) (*__.M
 		}
 		extra.AdditionalNodes = &[]waBinary.Node{node}
 
+	} else if req.Buttons != nil {
+		buttonsMessage := req.Buttons
+		buttons := make([]*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton, 0, len(buttonsMessage.Buttons))
+		for _, button := range buttonsMessage.Buttons {
+			buttons = append(buttons, &waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton{
+				Name:             proto.String(button.Name),
+				ButtonParamsJSON: proto.String(button.ButtonParamsJson),
+			})
+		}
+
+		interactiveMessage := &waE2E.InteractiveMessage{
+			InteractiveMessage: &waE2E.InteractiveMessage_NativeFlowMessage_{
+				NativeFlowMessage: &waE2E.InteractiveMessage_NativeFlowMessage{
+					Buttons: buttons,
+					MessageParamsJSON: proto.String(fmt.Sprintf(
+						`{"from":"api","templateId":"%s"}`,
+						random.String(16),
+					)),
+				},
+			},
+			ContextInfo: contextInfo,
+		}
+
+		if buttonsMessage.Body != nil {
+			interactiveMessage.Body = &waE2E.InteractiveMessage_Body{
+				Text: buttonsMessage.Body,
+			}
+		}
+		if buttonsMessage.Footer != nil {
+			interactiveMessage.Footer = &waE2E.InteractiveMessage_Footer{
+				Text: buttonsMessage.Footer,
+			}
+		}
+		if buttonsMessage.Header != nil || buttonsMessage.HeaderImage != nil {
+			interactiveMessage.Header = &waE2E.InteractiveMessage_Header{
+				Title: buttonsMessage.Header,
+			}
+		}
+		if buttonsMessage.HeaderImage != nil {
+			headerImage := buttonsMessage.HeaderImage
+			if headerImage.GetContentPath() != "" {
+				content, err := os.ReadFile(headerImage.GetContentPath())
+				if err != nil {
+					cli.Log.Errorf("Failed to read buttons header image from '%s': %v", headerImage.GetContentPath(), err)
+					return nil, fmt.Errorf("failed to read buttons header image from file: %w", err)
+				}
+				headerImage.Content = content
+			}
+			mediaResponse, err := cli.UploadMedia(ctx, jid, headerImage.Content, whatsmeow.MediaImage)
+			if err != nil {
+				return nil, err
+			}
+			thumbnail, err := media.ImageThumbnail(headerImage.Content)
+			if err != nil {
+				cli.Log.Errorf("Failed to generate buttons header image thumbnail: %v", err)
+			}
+			imgSize, err := media.CurrentSize(headerImage.Content)
+			if err != nil {
+				cli.Log.Errorf("Failed to get buttons header image dimensions: %v", err)
+			}
+			imageMessage := &waE2E.ImageMessage{
+				Mimetype:      proto.String(headerImage.Mimetype),
+				JPEGThumbnail: thumbnail,
+				Height:        proto.Uint32(imgSize.Height),
+				Width:         proto.Uint32(imgSize.Width),
+				URL:           &mediaResponse.URL,
+				DirectPath:    &mediaResponse.DirectPath,
+				FileSHA256:    mediaResponse.FileSHA256,
+				FileLength:    &mediaResponse.FileLength,
+				MediaKey:      mediaResponse.MediaKey,
+				FileEncSHA256: mediaResponse.FileEncSHA256,
+			}
+			interactiveMessage.Header.HasMediaAttachment = proto.Bool(true)
+			interactiveMessage.Header.Media = &waE2E.InteractiveMessage_Header_ImageMessage{
+				ImageMessage: imageMessage,
+			}
+			if mediaResponse.Handle != "" {
+				extra.MediaHandle = mediaResponse.Handle
+			}
+		}
+
+		message = &waE2E.Message{
+			ViewOnceMessage: &waE2E.FutureProofMessage{
+				Message: &waE2E.Message{
+					MessageContextInfo: &waE2E.MessageContextInfo{
+						DeviceListMetadata:        &waE2E.DeviceListMetadata{},
+						DeviceListMetadataVersion: proto.Int32(2),
+					},
+					InteractiveMessage: interactiveMessage,
+				},
+			},
+		}
+		node := waBinary.Node{
+			Tag: "biz",
+			Content: []waBinary.Node{{
+				Tag: "interactive",
+				Attrs: waBinary.Attrs{
+					"v":    "1",
+					"type": "native_flow",
+				},
+				Content: []waBinary.Node{{
+					Tag: "native_flow",
+					Attrs: waBinary.Attrs{
+						"v":    "9",
+						"name": "mixed",
+					},
+				}},
+			}},
+		}
+		extra.AdditionalNodes = &[]waBinary.Node{node}
+
 	} else if req.Location != nil {
 		// Location Message
 		locationMessage := &waE2E.LocationMessage{

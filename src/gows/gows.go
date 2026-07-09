@@ -2,14 +2,16 @@ package gows
 
 import (
 	"context"
+	"log/slog"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/devlikeapro/gows/storage"
 	"github.com/devlikeapro/gows/storage/sqlstorage"
+	"github.com/devlikeapro/gows/voip/callctl"
+	_ "github.com/jackc/pgx/v5" // Import the Postgres driver
 	"github.com/jellydator/ttlcache/v3"
-	_ "github.com/jackc/pgx/v5"     // Import the Postgres driver
 	_ "github.com/mattn/go-sqlite3" // Import the SQLite driver
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -36,6 +38,7 @@ type GoWS struct {
 	// This lets subsequent download attempts reuse the fresh DirectPath without
 	// sending another receipt, even if the first waiter already timed out.
 	mediaRetryEvents *ttlcache.Cache[types.MessageID, *events.MediaRetry]
+	Calls            *callctl.Controller
 }
 
 func (gows *GoWS) reissueEvent(event interface{}) {
@@ -94,10 +97,12 @@ func (gows *GoWS) reissueEvent(event interface{}) {
 	gows.emitEvent(data)
 }
 
-
 func (gows *GoWS) handleEvent(event interface{}) {
 	go gows.reissueEvent(event)
 	go gows.storageEventHandler.handleEvent(event)
+	if gows.Calls != nil {
+		go gows.Calls.HandleEvent(event)
+	}
 }
 
 func (gows *GoWS) Start() error {
@@ -142,6 +147,10 @@ func (gows *GoWS) Stop() {
 	gows.InitialAutoReconnect = false
 	if gows.eventHandlerID != 0 {
 		gows.RemoveEventHandler(gows.eventHandlerID)
+	}
+
+	if gows.Calls != nil {
+		gows.Calls.Shutdown()
 	}
 
 	gows.Disconnect()
@@ -215,6 +224,7 @@ func BuildSession(
 		0,
 		sync.Map{},
 		retryEventsCache,
+		nil,
 	}
 	if storageCfg == (StorageConfig{}) {
 		storageCfg = DefaultStorageConfig()
@@ -226,6 +236,7 @@ func BuildSession(
 		storage:    gows.Storage,
 		ignoreJids: ignoreJids,
 	}
+	gows.Calls = callctl.NewController(gows.Client, slog.Default(), gows.emitEvent)
 	gows.GetMessageForRetry = gows.storageEventHandler.GetMessageForRetry
 	gows.BackgroundEventCtx = gows.Context
 	return gows, nil
