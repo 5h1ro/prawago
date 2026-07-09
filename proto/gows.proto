@@ -176,6 +176,10 @@ service MessageService {
   // Calls
   //
   rpc RejectCall(RejectCallRequest) returns (Empty);
+  rpc StartCall(StartCallRequest) returns (StartCallResponse);
+  rpc AcceptCall(AcceptCallRequest) returns (Empty);
+  rpc EndCall(EndCallRequest) returns (Empty);
+  rpc WebRTC(WebRTCRequest) returns (WebRTCResponse);
 
   //
   // Storage
@@ -421,6 +425,9 @@ message MessageRequest {
   PollVoteMessage pollVote = 18;
 
   repeated string mentions = 19;
+
+  // Interactive buttons message
+  ButtonsMessage buttons = 20;
 }
 
 message Row {
@@ -440,6 +447,19 @@ message ListMessage {
   optional string footer = 3;
   string button = 4;
   repeated Section sections = 5;
+}
+
+message InteractiveButton {
+  string name = 1;
+  string buttonParamsJson = 2;
+}
+
+message ButtonsMessage {
+  optional string header = 1;
+  optional string body = 2;
+  optional string footer = 3;
+  repeated InteractiveButton buttons = 4;
+  optional Media headerImage = 5;
 }
 
 message MessageReaction {
@@ -792,6 +812,47 @@ message RejectCallRequest {
   Session session = 1;
   string from = 2;
   string id = 3;
+}
+
+// StartCallRequest starts an outgoing native audio call. audioIn is a path to a
+// raw 16 kHz mono s16le PCM file streamed as the outgoing audio once the call is
+// active; audioOut is a path where the decoded peer audio is written (same
+// format). Both are optional.
+message StartCallRequest {
+  Session session = 1;
+  string to = 2;
+  string audioIn = 3;
+  string audioOut = 4;
+}
+
+message StartCallResponse {
+  string id = 1;
+}
+
+// AcceptCallRequest answers an incoming native audio call. audioIn/audioOut have
+// the same meaning as in StartCallRequest.
+message AcceptCallRequest {
+  Session session = 1;
+  string id = 2;
+  string audioIn = 3;
+  string audioOut = 4;
+}
+
+// EndCallRequest terminates an active or ringing native call.
+message EndCallRequest {
+  Session session = 1;
+  string id = 2;
+}
+
+// WebRTCRequest exchanges the browser SDP for a call's PCM data-channel bridge.
+message WebRTCRequest {
+  Session session = 1;
+  string id = 2;
+  string sdpOffer = 3;
+}
+
+message WebRTCResponse {
+  string sdpAnswer = 1;
 }
 
 //

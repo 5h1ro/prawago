@@ -9,7 +9,6 @@ import (
 
 	"github.com/devlikeapro/gows/proto"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -61,7 +60,7 @@ func (s *Server) safeMarshal(v interface{}) (result string) {
 	return result
 }
 
-func (s *Server) StreamEvents(req *__.StreamEventsRequest, stream grpc.ServerStreamingServer[__.EventJson]) error {
+func (s *Server) StreamEvents(req *__.StreamEventsRequest, stream __.EventStream_StreamEventsServer) error {
 	sessionName := req.GetSession().GetId()
 	streamId := uuid.New()
 	listener := s.addListener(sessionName, streamId)
