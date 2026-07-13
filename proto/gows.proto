@@ -47,6 +47,22 @@ message JidBoolRequest {
   bool value = 3;
 }
 
+message JidsRequest {
+  Session session = 1;
+  repeated string jids = 2;
+}
+
+message ContactQRLinkRequest {
+  Session session = 1;
+  bool revoke = 2;
+}
+
+message BlocklistRequest {
+  Session session = 1;
+  string jid = 2;
+  string action = 3; // block or unblock
+}
+
 
 //
 // Events
@@ -83,6 +99,27 @@ service MessageService {
   rpc SetProfileName(ProfileNameRequest) returns (Empty);
   rpc SetProfileStatus(ProfileStatusRequest) returns (Empty);
   rpc SetProfilePicture(SetProfilePictureRequest) returns (Empty);
+  rpc GetBusinessProfile(JidRequest) returns (Json);
+  rpc GetBotList(Session) returns (JsonList);
+  rpc GetBotProfiles(Session) returns (JsonList);
+
+  //
+  // Privacy
+  //
+  rpc GetPrivacySettings(Session) returns (Json);
+  rpc SetPrivacySetting(PrivacySettingRequest) returns (Json);
+  rpc SetDefaultDisappearingTimer(DefaultDisappearingTimerRequest) returns (Empty);
+
+  //
+  // Username
+  //
+  rpc CheckUsername(CheckUsernameRequest) returns (Json);
+  rpc CheckUsernameMulti(CheckUsernameMultiRequest) returns (Json);
+  rpc SetUsername(SetUsernameRequest) returns (Json);
+  rpc DeleteUsername(Session) returns (Json);
+  rpc GetMyUsername(Session) returns (OptionalString);
+  rpc SetUsernamePin(UsernamePinRequest) returns (Json);
+  rpc GetUsernameRecommendations(UsernameRecommendationsRequest) returns (Json);
 
   //
   // Lids
@@ -98,6 +135,7 @@ service MessageService {
   rpc FetchGroups(Session) returns (Empty);
   rpc GetGroups(Session) returns (JsonList);
   rpc GetGroupInfo(JidRequest) returns (Json);
+  rpc FetchGroupInfo(JidRequest) returns (Json);
   rpc CreateGroup(CreateGroupRequest) returns (Json);
   rpc LeaveGroup(JidRequest) returns (Empty);
   rpc GetGroupInviteLink(JidRequest) returns (OptionalString);
@@ -110,6 +148,14 @@ service MessageService {
   rpc SetGroupLocked(JidBoolRequest) returns (Empty); // change info only by admins
   rpc SetGroupAnnounce(JidBoolRequest) returns (Empty); // send messages only by admins
   rpc UpdateGroupParticipants(UpdateParticipantsRequest) returns (JsonList);
+  rpc GetSubGroups(JidRequest) returns (JsonList);
+  rpc GetLinkedGroupsParticipants(JidRequest) returns (JsonList);
+  rpc LinkGroup(GroupLinkRequest) returns (Empty);
+  rpc UnlinkGroup(GroupLinkRequest) returns (Empty);
+  rpc GetGroupRequestParticipants(JidRequest) returns (JsonList);
+  rpc UpdateGroupRequestParticipants(UpdateGroupRequestParticipantsRequest) returns (JsonList);
+  rpc SetGroupJoinApprovalMode(JidBoolRequest) returns (Empty);
+  rpc SetGroupMemberAddMode(JidStringRequest) returns (Empty);
 
   //
   // Actions
@@ -120,12 +166,26 @@ service MessageService {
   rpc SubscribePresence(SubscribePresenceRequest) returns (Empty);
   rpc CheckPhones(CheckPhonesRequest) returns (CheckPhonesResponse);
   rpc MarkChatUnread(ChatUnreadRequest) returns (Empty);
+  rpc ResolveBusinessMessageLink(GroupCodeRequest) returns (Json);
+  rpc ResolveContactQRLink(GroupCodeRequest) returns (Json);
+  rpc GetContactQRLink(ContactQRLinkRequest) returns (OptionalString);
+  rpc GetUserInfo(JidsRequest) returns (Json);
+  rpc GetUserDevices(JidsRequest) returns (JsonList);
+  rpc GetBlocklist(Session) returns (Json);
+  rpc UpdateBlocklist(BlocklistRequest) returns (Json);
+  rpc SendMexIQ(MexIQRequest) returns (Json);
+  rpc SendIQ(IQRequest) returns (Json);
 
   //
   // Message
   //
   rpc GenerateNewMessageID (Session) returns (NewMessageIDResponse);
   rpc SendMessage (MessageRequest) returns (MessageResponse);
+  rpc SendCodeBlock (CodeBlockRequest) returns (MessageResponse);
+  rpc SendTable (RichTableRequest) returns (MessageResponse);
+  rpc SendList (RichListRequest) returns (MessageResponse);
+  rpc SendMarkdown (RichMarkdownRequest) returns (MessageResponse);
+  rpc SendRichMessage (RichMessageRequest) returns (MessageResponse);
   rpc SendReaction (MessageReaction) returns (MessageResponse);
   rpc MarkRead(MarkReadRequest) returns (Empty);
   rpc EditMessage(EditMessageRequest) returns (MessageResponse);
@@ -138,11 +198,23 @@ service MessageService {
   rpc GetSubscribedNewsletters(NewsletterListRequest) returns (NewsletterList);
   rpc GetNewsletterInfo(NewsletterInfoRequest) returns (Newsletter);
   rpc GetNewsletterMessagesByInvite(GetNewsletterMessagesByInviteRequest) returns (Json);
+  rpc GetNewsletterMessages(GetNewsletterMessagesRequest) returns (JsonList);
+  rpc GetNewsletterMessageUpdates(GetNewsletterMessageUpdatesRequest) returns (JsonList);
   rpc SearchNewslettersByView(SearchNewslettersByViewRequest) returns (NewsletterSearchPageResult);
   rpc SearchNewslettersByText(SearchNewslettersByTextRequest) returns (NewsletterSearchPageResult);
   rpc CreateNewsletter(CreateNewsletterRequest) returns (Newsletter);
   rpc NewsletterToggleMute(NewsletterToggleMuteRequest) returns (Empty);
   rpc NewsletterToggleFollow(NewsletterToggleFollowRequest) returns (Empty);
+  rpc NewsletterUpdateName(JidStringRequest) returns (Json);
+  rpc NewsletterUpdateDescription(JidStringRequest) returns (Json);
+  rpc NewsletterReactionMode(JidStringRequest) returns (Json);
+  rpc NewsletterUpdatePicture(NewsletterPictureRequest) returns (Json);
+  rpc NewsletterRemovePicture(JidRequest) returns (Json);
+  rpc NewsletterDelete(JidRequest) returns (Json);
+  rpc NewsletterChangeOwner(NewsletterUserRequest) returns (Json);
+  rpc NewsletterDemote(NewsletterUserRequest) returns (Json);
+  rpc NewsletterSubscribeLiveUpdates(JidRequest) returns (OptionalUInt64);
+  rpc NewsletterMarkViewed(NewsletterMessageIdsRequest) returns (Empty);
 
   //
   // Labels
@@ -290,6 +362,61 @@ message SetProfilePictureRequest {
   bytes picture = 2;
 }
 
+message PrivacySettingRequest {
+  Session session = 1;
+  string name = 2;
+  string value = 3;
+}
+
+message DefaultDisappearingTimerRequest {
+  Session session = 1;
+  uint64 seconds = 2;
+}
+
+message CheckUsernameRequest {
+  Session session = 1;
+  string username = 2;
+  bool includeSuggestions = 3;
+}
+
+message CheckUsernameMultiRequest {
+  Session session = 1;
+  repeated string usernames = 2;
+}
+
+message SetUsernameRequest {
+  Session session = 1;
+  string username = 2;
+  string source = 3;
+  string sessionId = 4;
+  string pin = 5;
+}
+
+message UsernamePinRequest {
+  Session session = 1;
+  string pin = 2;
+}
+
+message UsernameRecommendationsRequest {
+  Session session = 1;
+  string source = 2;
+}
+
+message MexIQRequest {
+  Session session = 1;
+  string queryId = 2;
+  string variablesJson = 3;
+  string dataPath = 4;
+}
+
+message IQRequest {
+  Session session = 1;
+  string namespace = 2;
+  string type = 3;
+  string to = 4;
+  string contentJson = 5;
+}
+
 message CreateGroupRequest {
   Session session = 1;
   string name = 2;
@@ -300,6 +427,12 @@ message SetPictureRequest {
   Session session = 1;
   string jid = 2;
   bytes picture = 3;
+}
+
+message GroupLinkRequest {
+  Session session = 1;
+  string parentJid = 2;
+  string childJid = 3;
 }
 
 enum ParticipantAction {
@@ -314,6 +447,13 @@ message UpdateParticipantsRequest {
   string jid = 2;
   repeated string participants = 3;
   ParticipantAction action = 4;
+}
+
+message UpdateGroupRequestParticipantsRequest {
+  Session session = 1;
+  string jid = 2;
+  repeated string participants = 3;
+  string action = 4; // approve or reject
 }
 message GroupCodeRequest {
   Session session = 1;
@@ -430,6 +570,67 @@ message MessageRequest {
   ButtonsMessage buttons = 20;
 }
 
+message CodeBlockRequest {
+  Session session = 1;
+  string jid = 2;
+  string code = 3;
+  optional string title = 4;
+  optional string footer = 5;
+  string language = 6;
+  string replyTo = 7;
+  string id = 8;
+  repeated string participants = 9;
+}
+
+message RichTableRow {
+  repeated string items = 1;
+  bool isHeading = 2;
+}
+
+message RichTableRequest {
+  Session session = 1;
+  string jid = 2;
+  string title = 3;
+  repeated string headers = 4;
+  repeated RichTableRow rows = 5;
+  optional string headerText = 6;
+  optional string footer = 7;
+  string replyTo = 8;
+  string id = 9;
+  repeated string participants = 10;
+}
+
+message RichListRequest {
+  Session session = 1;
+  string jid = 2;
+  string title = 3;
+  repeated RichTableRow rows = 4;
+  optional string headerText = 5;
+  optional string footer = 6;
+  string replyTo = 7;
+  string id = 8;
+  repeated string participants = 9;
+}
+
+message RichMarkdownRequest {
+  Session session = 1;
+  string jid = 2;
+  string text = 3;
+  string replyTo = 4;
+  string id = 5;
+  repeated string participants = 6;
+}
+
+message RichMessageRequest {
+  Session session = 1;
+  string jid = 2;
+  string submessagesJson = 3;
+  bytes unifiedResponseData = 4;
+  string replyTo = 5;
+  string id = 6;
+  repeated string participants = 7;
+}
+
 message Row {
   string title = 1;
   optional string description = 2;
@@ -483,6 +684,7 @@ message NewMessageIDResponse {
 message ProfilePictureRequest {
   Session session = 1;
   string jid = 2;
+  bool isCommunity = 3;
 }
 message ProfilePictureResponse {
   string url = 2;
@@ -607,6 +809,39 @@ message GetNewsletterMessagesByInviteRequest {
   Session session = 1;
   string invite = 2;
   int64 limit = 3;
+}
+
+message GetNewsletterMessagesRequest {
+  Session session = 1;
+  string jid = 2;
+  uint64 limit = 3;
+  uint64 before = 4;
+}
+
+message GetNewsletterMessageUpdatesRequest {
+  Session session = 1;
+  string jid = 2;
+  uint64 limit = 3;
+  uint64 since = 4;
+  uint64 after = 5;
+}
+
+message NewsletterPictureRequest {
+  Session session = 1;
+  string jid = 2;
+  bytes picture = 3;
+}
+
+message NewsletterUserRequest {
+  Session session = 1;
+  string jid = 2;
+  string userLid = 3;
+}
+
+message NewsletterMessageIdsRequest {
+  Session session = 1;
+  string jid = 2;
+  repeated uint64 serverIds = 3;
 }
 
 message SearchPage {

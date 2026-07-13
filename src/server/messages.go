@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/devlikeapro/gows/gows"
@@ -15,6 +16,8 @@ import (
 	"github.com/devlikeapro/gows/storage"
 	"go.mau.fi/util/random"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waAICommon"
+	"go.mau.fi/whatsmeow/proto/waAICommonDeprecated"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -529,17 +532,17 @@ func (s *Server) SendMessage(ctx context.Context, req *__.MessageRequest) (*__.M
 				externalShareFullVideoDurationInSeconds = &zero
 			}
 			message.VideoMessage = &waE2E.VideoMessage{
-				Caption:                                proto.String(req.Text),
-				Mimetype:                               proto.String(req.Media.Mimetype),
-				URL:                                    &mediaResponse.URL,
-				DirectPath:                             &mediaResponse.DirectPath,
-				MediaKey:                               mediaResponse.MediaKey,
-				FileEncSHA256:                          mediaResponse.FileEncSHA256,
-				FileSHA256:                             mediaResponse.FileSHA256,
-				FileLength:                             &mediaResponse.FileLength,
-				Seconds:                                durationSeconds,
-				JPEGThumbnail:                          thumbnail,
-				GifPlayback:                            gifPlayback,
+				Caption:                                 proto.String(req.Text),
+				Mimetype:                                proto.String(req.Media.Mimetype),
+				URL:                                     &mediaResponse.URL,
+				DirectPath:                              &mediaResponse.DirectPath,
+				MediaKey:                                mediaResponse.MediaKey,
+				FileEncSHA256:                           mediaResponse.FileEncSHA256,
+				FileSHA256:                              mediaResponse.FileSHA256,
+				FileLength:                              &mediaResponse.FileLength,
+				Seconds:                                 durationSeconds,
+				JPEGThumbnail:                           thumbnail,
+				GifPlayback:                             gifPlayback,
 				ExternalShareFullVideoDurationInSeconds: externalShareFullVideoDurationInSeconds,
 			}
 			message.VideoMessage.ContextInfo = contextInfo
@@ -642,6 +645,269 @@ func (s *Server) SendMessage(ctx context.Context, req *__.MessageRequest) (*__.M
 		Message:   data,
 	}
 	return &msg, nil
+}
+
+func (s *Server) SendCodeBlock(ctx context.Context, req *__.CodeBlockRequest) (*__.MessageResponse, error) {
+	if req.GetCode() == "" {
+		return nil, errors.New("code is required")
+	}
+	submessages := []*waAICommonDeprecated.AIRichResponseSubMessage{}
+	if req.GetTitle() != "" {
+		submessages = append(submessages, buildRichTextSubMessage(req.GetTitle()))
+	}
+	submessages = append(submessages, buildRichCodeSubMessage(req.GetCode(), req.GetLanguage()))
+	if req.GetFooter() != "" {
+		submessages = append(submessages, buildRichTextSubMessage(req.GetFooter()))
+	}
+	return s.sendAIRichResponse(ctx, aiRichSendOptions{
+		Session:      req.GetSession(),
+		JID:          req.GetJid(),
+		ReplyTo:      req.GetReplyTo(),
+		ID:           req.GetId(),
+		Participants: req.GetParticipants(),
+	}, submessages, nil)
+}
+
+func (s *Server) SendTable(ctx context.Context, req *__.RichTableRequest) (*__.MessageResponse, error) {
+	rows := []*waAICommonDeprecated.AIRichResponseTableMetadata_AIRichResponseTableRow{}
+	if len(req.GetHeaders()) > 0 {
+		rows = append(rows, &waAICommonDeprecated.AIRichResponseTableMetadata_AIRichResponseTableRow{
+			Items:     req.GetHeaders(),
+			IsHeading: proto.Bool(true),
+		})
+	}
+	rows = append(rows, buildRichTableRows(req.GetRows())...)
+	if len(rows) == 0 {
+		return nil, errors.New("headers or rows are required")
+	}
+
+	submessages := []*waAICommonDeprecated.AIRichResponseSubMessage{}
+	if req.GetHeaderText() != "" {
+		submessages = append(submessages, buildRichTextSubMessage(req.GetHeaderText()))
+	}
+	submessages = append(submessages, buildRichTableSubMessage(req.GetTitle(), rows))
+	if req.GetFooter() != "" {
+		submessages = append(submessages, buildRichTextSubMessage(req.GetFooter()))
+	}
+	return s.sendAIRichResponse(ctx, aiRichSendOptions{
+		Session:      req.GetSession(),
+		JID:          req.GetJid(),
+		ReplyTo:      req.GetReplyTo(),
+		ID:           req.GetId(),
+		Participants: req.GetParticipants(),
+	}, submessages, nil)
+}
+
+func (s *Server) SendList(ctx context.Context, req *__.RichListRequest) (*__.MessageResponse, error) {
+	rows := buildRichTableRows(req.GetRows())
+	if len(rows) == 0 {
+		return nil, errors.New("rows are required")
+	}
+
+	submessages := []*waAICommonDeprecated.AIRichResponseSubMessage{}
+	if req.GetHeaderText() != "" {
+		submessages = append(submessages, buildRichTextSubMessage(req.GetHeaderText()))
+	}
+	submessages = append(submessages, buildRichTableSubMessage(req.GetTitle(), rows))
+	if req.GetFooter() != "" {
+		submessages = append(submessages, buildRichTextSubMessage(req.GetFooter()))
+	}
+	return s.sendAIRichResponse(ctx, aiRichSendOptions{
+		Session:      req.GetSession(),
+		JID:          req.GetJid(),
+		ReplyTo:      req.GetReplyTo(),
+		ID:           req.GetId(),
+		Participants: req.GetParticipants(),
+	}, submessages, nil)
+}
+
+func (s *Server) SendMarkdown(ctx context.Context, req *__.RichMarkdownRequest) (*__.MessageResponse, error) {
+	if req.GetText() == "" {
+		return nil, errors.New("text is required")
+	}
+	unifiedData, err := buildMarkdownUnifiedResponse(req.GetText())
+	if err != nil {
+		return nil, err
+	}
+	return s.sendAIRichResponse(ctx, aiRichSendOptions{
+		Session:      req.GetSession(),
+		JID:          req.GetJid(),
+		ReplyTo:      req.GetReplyTo(),
+		ID:           req.GetId(),
+		Participants: req.GetParticipants(),
+	}, []*waAICommonDeprecated.AIRichResponseSubMessage{buildRichTextSubMessage(req.GetText())}, unifiedData)
+}
+
+func (s *Server) SendRichMessage(ctx context.Context, req *__.RichMessageRequest) (*__.MessageResponse, error) {
+	var submessages []*waAICommonDeprecated.AIRichResponseSubMessage
+	if err := json.Unmarshal([]byte(req.GetSubmessagesJson()), &submessages); err != nil {
+		return nil, fmt.Errorf("invalid submessagesJson: %w", err)
+	}
+	if len(submessages) == 0 {
+		return nil, errors.New("submessagesJson must contain at least one submessage")
+	}
+	return s.sendAIRichResponse(ctx, aiRichSendOptions{
+		Session:      req.GetSession(),
+		JID:          req.GetJid(),
+		ReplyTo:      req.GetReplyTo(),
+		ID:           req.GetId(),
+		Participants: req.GetParticipants(),
+	}, submessages, req.GetUnifiedResponseData())
+}
+
+type aiRichSendOptions struct {
+	Session      *__.Session
+	JID          string
+	ReplyTo      string
+	ID           string
+	Participants []string
+}
+
+func (s *Server) sendAIRichResponse(ctx context.Context, opts aiRichSendOptions, submessages []*waAICommonDeprecated.AIRichResponseSubMessage, unifiedData []byte) (*__.MessageResponse, error) {
+	cli, err := s.Sm.Get(opts.Session.GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(opts.JID)
+	if err != nil {
+		return nil, err
+	}
+
+	contextInfo, err := cli.PopulateContextInfoDisappearingSettings(nil, jid)
+	if err != nil {
+		cli.Log.Warnf("Failed to get disappearing settings: %v", err)
+	}
+	if opts.ReplyTo != "" {
+		contextInfo, err = cli.PopulateContextInfoWithReply(contextInfo, opts.ReplyTo)
+		if err != nil {
+			cli.Log.Warnf("Failed to get message for reply: %v", err)
+		}
+	}
+
+	extra := whatsmeow.SendRequestExtra{}
+	if opts.ID != "" {
+		extra.ID = opts.ID
+	}
+	if len(opts.Participants) > 0 {
+		participants, err := parseParticipantJIDs(opts.Participants)
+		if err != nil {
+			return nil, err
+		}
+		extra.Participants = participants
+	}
+
+	message := buildAIRichResponseMessage(submessages, contextInfo, unifiedData)
+	res, err := cli.SendMessage(ctx, jid, message, extra)
+	if err != nil {
+		return nil, err
+	}
+	data, err := toJson(res)
+	if err != nil {
+		cli.Log.Errorf("Error marshaling message for response %v: %v", res.Info.ID, err)
+	}
+	return &__.MessageResponse{
+		Id:        res.Info.ID,
+		Timestamp: res.Info.Timestamp.Unix(),
+		Message:   data,
+	}, nil
+}
+
+func buildRichTextSubMessage(text string) *waAICommonDeprecated.AIRichResponseSubMessage {
+	return &waAICommonDeprecated.AIRichResponseSubMessage{
+		MessageType: waAICommonDeprecated.AIRichResponseSubMessageType_AI_RICH_RESPONSE_TEXT.Enum(),
+		MessageText: proto.String(text),
+	}
+}
+
+func buildRichCodeSubMessage(code, language string) *waAICommonDeprecated.AIRichResponseSubMessage {
+	if language == "" {
+		language = "javascript"
+	}
+	return &waAICommonDeprecated.AIRichResponseSubMessage{
+		MessageType: waAICommonDeprecated.AIRichResponseSubMessageType_AI_RICH_RESPONSE_CODE.Enum(),
+		CodeMetadata: &waAICommonDeprecated.AIRichResponseCodeMetadata{
+			CodeLanguage: proto.String(language),
+			CodeBlocks: []*waAICommonDeprecated.AIRichResponseCodeMetadata_AIRichResponseCodeBlock{
+				{
+					HighlightType: waAICommonDeprecated.AIRichResponseCodeMetadata_AI_RICH_RESPONSE_CODE_HIGHLIGHT_DEFAULT.Enum(),
+					CodeContent:   proto.String(code),
+				},
+			},
+		},
+	}
+}
+
+func buildRichTableRows(rows []*__.RichTableRow) []*waAICommonDeprecated.AIRichResponseTableMetadata_AIRichResponseTableRow {
+	tableRows := make([]*waAICommonDeprecated.AIRichResponseTableMetadata_AIRichResponseTableRow, 0, len(rows))
+	for _, row := range rows {
+		tableRows = append(tableRows, &waAICommonDeprecated.AIRichResponseTableMetadata_AIRichResponseTableRow{
+			Items:     row.GetItems(),
+			IsHeading: proto.Bool(row.GetIsHeading()),
+		})
+	}
+	return tableRows
+}
+
+func buildRichTableSubMessage(title string, rows []*waAICommonDeprecated.AIRichResponseTableMetadata_AIRichResponseTableRow) *waAICommonDeprecated.AIRichResponseSubMessage {
+	return &waAICommonDeprecated.AIRichResponseSubMessage{
+		MessageType: waAICommonDeprecated.AIRichResponseSubMessageType_AI_RICH_RESPONSE_TABLE.Enum(),
+		TableMetadata: &waAICommonDeprecated.AIRichResponseTableMetadata{
+			Title: proto.String(title),
+			Rows:  rows,
+		},
+	}
+}
+
+func buildAIRichResponseMessage(submessages []*waAICommonDeprecated.AIRichResponseSubMessage, contextInfo *waE2E.ContextInfo, unifiedData []byte) *waE2E.Message {
+	richResponse := &waE2E.AIRichResponseMessage{
+		MessageType: waAICommonDeprecated.AIRichResponseMessageType_AI_RICH_RESPONSE_TYPE_STANDARD.Enum(),
+		Submessages: submessages,
+		ContextInfo: cloneContextInfoForAIRichResponse(contextInfo),
+	}
+	if len(unifiedData) > 0 {
+		richResponse.UnifiedResponse = &waAICommon.AIRichResponseUnifiedResponse{Data: unifiedData}
+	}
+	return &waE2E.Message{
+		BotForwardedMessage: &waE2E.FutureProofMessage{
+			Message: &waE2E.Message{
+				RichResponseMessage: richResponse,
+			},
+		},
+	}
+}
+
+func buildMarkdownUnifiedResponse(text string) ([]byte, error) {
+	payload := map[string]any{
+		"response_id": random.String(16),
+		"sections": []map[string]any{
+			{
+				"view_model": map[string]any{
+					"primitive": map[string]any{
+						"text":       text,
+						"__typename": "GenAIMarkdownTextUXPrimitive",
+					},
+					"__typename": "GenAISingleLayoutViewModel",
+				},
+			},
+		},
+	}
+	return json.Marshal(payload)
+}
+
+func cloneContextInfoForAIRichResponse(contextInfo *waE2E.ContextInfo) *waE2E.ContextInfo {
+	var richContext *waE2E.ContextInfo
+	if contextInfo != nil {
+		richContext = proto.Clone(contextInfo).(*waE2E.ContextInfo)
+	} else {
+		richContext = &waE2E.ContextInfo{}
+	}
+	richContext.ForwardingScore = proto.Uint32(1)
+	richContext.IsForwarded = proto.Bool(true)
+	richContext.ForwardOrigin = waE2E.ContextInfo_META_AI.Enum()
+	richContext.ForwardedAiBotMessageInfo = &waAICommon.ForwardedAIBotMessageInfo{
+		BotJID: proto.String("867051314767696@bot"),
+	}
+	return richContext
 }
 
 func (s *Server) SendReaction(ctx context.Context, req *__.MessageReaction) (*__.MessageResponse, error) {

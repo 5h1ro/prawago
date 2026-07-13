@@ -24,7 +24,8 @@ func (s *Server) GetProfilePicture(ctx context.Context, req *__.ProfilePictureRe
 		return nil, err
 	}
 	info, err := cli.GetProfilePictureInfo(ctx, jid, &whatsmeow.GetProfilePictureParams{
-		Preview: false,
+		Preview:     false,
+		IsCommunity: req.GetIsCommunity(),
 	})
 	if errors.Is(err, whatsmeow.ErrProfilePictureNotSet) {
 		return &__.ProfilePictureResponse{Url: ""}, nil

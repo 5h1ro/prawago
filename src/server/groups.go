@@ -51,6 +51,22 @@ func (s *Server) GetGroupInfo(ctx context.Context, req *__.JidRequest) (*__.Json
 	return toJson(info)
 }
 
+func (s *Server) FetchGroupInfo(ctx context.Context, req *__.JidRequest) (*__.Json, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	info, err := cli.GetGroupInfo(ctx, jid)
+	if err != nil {
+		return nil, err
+	}
+	return toJson(info)
+}
+
 func (s *Server) CreateGroup(ctx context.Context, req *__.CreateGroupRequest) (*__.Json, error) {
 	cli, err := s.Sm.Get(req.GetSession().GetId())
 	if err != nil {
@@ -280,4 +296,158 @@ func (s *Server) UpdateGroupParticipants(ctx context.Context, req *__.UpdatePart
 		return nil, err
 	}
 	return toJsonList(result)
+}
+
+func (s *Server) GetSubGroups(ctx context.Context, req *__.JidRequest) (*__.JsonList, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	groups, err := cli.GetSubGroups(ctx, jid)
+	if err != nil {
+		return nil, err
+	}
+	return toJsonList(groups)
+}
+
+func (s *Server) GetLinkedGroupsParticipants(ctx context.Context, req *__.JidRequest) (*__.JsonList, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	participants, err := cli.GetLinkedGroupsParticipants(ctx, jid)
+	if err != nil {
+		return nil, err
+	}
+	return toJsonList(participants)
+}
+
+func (s *Server) LinkGroup(ctx context.Context, req *__.GroupLinkRequest) (*__.Empty, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	parent, child, err := parseGroupLinkJIDs(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := cli.LinkGroup(ctx, parent, child); err != nil {
+		return nil, err
+	}
+	return &__.Empty{}, nil
+}
+
+func (s *Server) UnlinkGroup(ctx context.Context, req *__.GroupLinkRequest) (*__.Empty, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	parent, child, err := parseGroupLinkJIDs(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := cli.UnlinkGroup(ctx, parent, child); err != nil {
+		return nil, err
+	}
+	return &__.Empty{}, nil
+}
+
+func (s *Server) GetGroupRequestParticipants(ctx context.Context, req *__.JidRequest) (*__.JsonList, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	participants, err := cli.GetGroupRequestParticipants(ctx, jid)
+	if err != nil {
+		return nil, err
+	}
+	return toJsonList(participants)
+}
+
+func (s *Server) UpdateGroupRequestParticipants(ctx context.Context, req *__.UpdateGroupRequestParticipantsRequest) (*__.JsonList, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	participants := make([]types.JID, 0, len(req.GetParticipants()))
+	for ind, p := range req.GetParticipants() {
+		participant, err := types.ParseJID(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse JID at index %d (%s): %w", ind, p, err)
+		}
+		participants = append(participants, participant)
+	}
+
+	var action whatsmeow.ParticipantRequestChange
+	switch req.GetAction() {
+	case string(whatsmeow.ParticipantChangeApprove):
+		action = whatsmeow.ParticipantChangeApprove
+	case string(whatsmeow.ParticipantChangeReject):
+		action = whatsmeow.ParticipantChangeReject
+	default:
+		return nil, fmt.Errorf("unknown group request action: %s", req.GetAction())
+	}
+	result, err := cli.UpdateGroupRequestParticipants(ctx, jid, participants, action)
+	if err != nil {
+		return nil, err
+	}
+	return toJsonList(result)
+}
+
+func (s *Server) SetGroupJoinApprovalMode(ctx context.Context, req *__.JidBoolRequest) (*__.Empty, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	if err := cli.SetGroupJoinApprovalMode(ctx, jid, req.GetValue()); err != nil {
+		return nil, err
+	}
+	return &__.Empty{}, nil
+}
+
+func (s *Server) SetGroupMemberAddMode(ctx context.Context, req *__.JidStringRequest) (*__.Empty, error) {
+	cli, err := s.Sm.Get(req.GetSession().GetId())
+	if err != nil {
+		return nil, err
+	}
+	jid, err := types.ParseJID(req.GetJid())
+	if err != nil {
+		return nil, err
+	}
+	if err := cli.SetGroupMemberAddMode(ctx, jid, types.GroupMemberAddMode(req.GetValue())); err != nil {
+		return nil, err
+	}
+	return &__.Empty{}, nil
+}
+
+func parseGroupLinkJIDs(req *__.GroupLinkRequest) (types.JID, types.JID, error) {
+	parent, err := types.ParseJID(req.GetParentJid())
+	if err != nil {
+		return types.EmptyJID, types.EmptyJID, err
+	}
+	child, err := types.ParseJID(req.GetChildJid())
+	if err != nil {
+		return types.EmptyJID, types.EmptyJID, err
+	}
+	return parent, child, nil
 }
