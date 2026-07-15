@@ -338,9 +338,27 @@ func (gows *GoWS) SendMessage(ctx context.Context, to types.JID, msg *waE2E.Mess
 		Timestamp: resp.Timestamp,
 		ServerID:  resp.ServerID,
 	}
-	evt := &events.Message{Info: *info, Message: msg, RawMessage: msg}
+	// Store the real content unwrapped so isRealMessage() detects it. AI rich
+	// responses are wrapped in BotForwardedMessage; storing them wrapped makes
+	// is_real=false, which GetChatMessages filters out, so the message we just
+	// sent never shows up in the dashboard even though it reaches the phone.
+	evt := &events.Message{Info: *info, Message: unwrapForStorage(msg), RawMessage: msg}
 	go gows.handleEvent(evt)
 	return evt, nil
+}
+
+// unwrapForStorage peels BotForwardedMessage wrappers so the inner real message
+// (e.g. RichResponseMessage) sits at the top level, matching how incoming
+// messages are delivered by whatsmeow and keeping is_real accurate.
+func unwrapForStorage(msg *waE2E.Message) *waE2E.Message {
+	for i := 0; i < 5 && msg != nil; i++ {
+		inner := msg.GetBotForwardedMessage().GetMessage()
+		if inner == nil {
+			return msg
+		}
+		msg = inner
+	}
+	return msg
 }
 
 // MarkRead marks messages as read and emits a receipt event
