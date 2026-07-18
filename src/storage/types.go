@@ -36,6 +36,9 @@ type StoredChat struct {
 	Jid                   types.JID
 	Name                  string
 	ConversationTimestamp time.Time
+	Pinned                bool
+	Archived              bool
+	Muted                 bool
 }
 
 type EphemeralSetting struct {

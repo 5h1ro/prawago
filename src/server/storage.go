@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
 
 	__ "github.com/devlikeapro/gows/proto"
 	"github.com/devlikeapro/gows/storage"
@@ -136,6 +137,20 @@ func (s *Server) GetChats(ctx context.Context, req *__.GetChatsRequest) (*__.Jso
 	chats, err := cli.Storage.Chats.GetChats(filter, sort, pagination, merge)
 	if err != nil {
 		return nil, err
+	}
+	// Enrich with local chat settings (pinned / archived / muted) from the
+	// whatsmeow app state so the dashboard can show favorites and filters.
+	if cli.Store != nil && cli.Store.ChatSettings != nil {
+		now := time.Now()
+		for _, chat := range chats {
+			settings, sErr := cli.Store.ChatSettings.GetChatSettings(ctx, chat.Jid)
+			if sErr != nil || !settings.Found {
+				continue
+			}
+			chat.Pinned = settings.Pinned
+			chat.Archived = settings.Archived
+			chat.Muted = settings.MutedUntil.After(now)
+		}
 	}
 	response, err := toJsonList(chats)
 	if err != nil {
