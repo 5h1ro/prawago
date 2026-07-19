@@ -12,7 +12,15 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 )
+
+// encryptedStatusPlaceholder is stored as the body of a stub message when a
+// status (story) update can't be decrypted (missing sender key). It gives the
+// dashboard something to show ("locked" ring) instead of dropping the update
+// silently. If whatsmeow's retry later succeeds, the real message upserts over
+// this stub (same message ID) and the placeholder disappears.
+const encryptedStatusPlaceholder = "\U0001F512 Encrypted status — couldn't be loaded"
 
 // StorageEventHandler handles events from WhatsApp and stores them in the database.
 // It can be configured to ignore events from certain types of JIDs based on their server type.
@@ -140,6 +148,12 @@ func (st *StorageEventHandler) handleEvent(event interface{}) {
 		}
 		st.handleSaveMessage(msg, &status)
 		st.handleMessageEvent(msg)
+	case *events.UndecryptableMessage:
+		undec := event.(*events.UndecryptableMessage)
+		if st.shouldIgnoreJID(undec.Info.Chat) {
+			return
+		}
+		st.handleUndecryptable(undec)
 	case *events.Receipt:
 		receipt := event.(*events.Receipt)
 		if st.shouldIgnoreJID(receipt.Chat) {
@@ -200,6 +214,38 @@ func (st *StorageEventHandler) handleSaveMessage(event *events.Message, status *
 	if err != nil {
 		st.log.Errorf("Error storing message %v(%v): %v", event.Info.Chat, event.Info.ID, err)
 	}
+}
+
+// handleUndecryptable logs messages that failed to decrypt and, for status
+// (story) updates, stores a visible placeholder so the dashboard shows a
+// "locked" ring instead of dropping the update silently. whatsmeow already
+// sends a retry receipt / requests the message from the phone; if that later
+// succeeds the real message upserts over this stub (same ID).
+func (st *StorageEventHandler) handleUndecryptable(event *events.UndecryptableMessage) {
+	st.log.Warnf(
+		"Undecryptable message id=%s chat=%v sender=%v unavailable=%v type=%q failMode=%v",
+		event.Info.ID, event.Info.Chat, event.Info.Sender,
+		event.IsUnavailable, event.UnavailableType, event.DecryptFailMode,
+	)
+
+	// Only surface status/story failures; other chats already handle retries
+	// well enough and a stub would be noise in the message list.
+	isStatus := event.Info.Chat.Server == types.BroadcastServer && event.Info.Chat.User == "status"
+	if !isStatus {
+		return
+	}
+	// Intentionally-unavailable types (e.g. protocol placeholders) carry a type;
+	// there is nothing meaningful to show for those.
+	if event.UnavailableType != "" {
+		return
+	}
+
+	placeholder := &events.Message{
+		Info:    event.Info,
+		Message: &waE2E.Message{Conversation: proto.String(encryptedStatusPlaceholder)},
+	}
+	status := storage.StatusError
+	st.handleSaveMessage(placeholder, &status)
 }
 
 func (st *StorageEventHandler) handleMessageEvent(event *events.Message) {
